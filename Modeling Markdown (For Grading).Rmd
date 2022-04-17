@@ -1,0 +1,97 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "Travis Helm"
+date: "4/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ElemStatLearn)
+library(AppliedPredictiveModeling)
+library(caret)
+library(pgmm)
+library(rpart)
+library(gbm)
+library(lubridate)
+library(e1071)
+library(dplyr)
+library(tidyverse)
+library(pls)
+library(fastDummies)
+library(nnet)
+```
+
+## Step 1:  Dataset Creation
+
+Step 1 import dataset, remove columns that are blank, timevalue columns, and character columns.  NOTE:  The character/time value columns may have been able to be used in a different model but in the model I plan on using will only utilize the numeric columns.
+
+```{r initial dataset creation}
+
+dataset <-  read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+dataset$classe = as.factor(dataset$classe)
+dataset2 <- dataset[ , colSums(is.na(dataset)) ==0]
+dataset3 <- dataset2[,-c(12:20,43:48,52:60,74:82)]
+dataset4 <- dataset3[,-c(1,3:7)]
+
+
+```
+
+## Step 2: Separate into Training and Test Datasets
+
+For step 2 I take the training dataset and separate 60% into the data that will be used for training the dataset and keep 40% out as a validation dataset to see how well the model works prior to applying to the test dataset.
+
+```{r test and training sets}
+
+set.seed(1234)
+in_D4_train = createDataPartition(y=dataset4$classe, p=0.60, list = FALSE)
+D4_Train <- dataset4[in_D4_train,] 
+D4_Test <- dataset4[-in_D4_train,]
+
+
+```
+
+## Step 3: Variable Reduction using PCA
+
+There are 54 numeric variables to choose from.  I use PCA as a way to reduce the number of variable and combine their variability into fewer variables to then be used in my model.  I use the default parameter settings for the pce method in the caret package and keep all variables to sum to 95% of the original variance.  The number of variables to be used in the model is reduced from 54 down to 25 variable.
+
+```{r PCA}
+
+preProcPCA <- preProcess(D4_Train, method = "pca",thresh = 0.95)
+PredictPCA <- predict(preProcPCA, D4_Train) %>% 
+  select(-c('user_name'))
+
+```
+
+## Step 4: Model Training on the Training Dataset
+
+I choose the random forest for my model of choice.  Initially I did a Boost, however, the memory allocation on my older computer was a constraint.  Running the default random forest method with my training dataset didn't have the same issue.  Another benefit of the random forest method is that cross validation is taken care of because the algorithm only selects a portion of the data, generates a tree based on sampled variables, and then tests on the data that is left out.  It does this multiple times to produce multiple trees (hence the random forest)
+
+The confusion matrix shows a 100% accuracy rate.  However, the rate on new unseen data is expected to be lower.  I use step five below to test for what the accuracy might be on an unseen dataset.
+
+```{r Model Training Train Dataset}
+
+mod_fit_rf <- train(classe ~ ., method = 'rf', data = PredictPCA)
+rf_fit <- predict(mod_fit_rf, newdata = PredictPCA)
+train_w_results <- PredictPCA
+train_w_results$rf_fit = as.factor(rf_fit)
+confusionMatrix(train_w_results$classe, train_w_results$rf_fit)
+
+```
+
+## Step 5:  Validation on holdout 40% of data from the Training Dataset
+
+I used a validation hold-out to determine an out-of-sample error rate.  This 40% was not used to train the model.  When I use the PCA/random forest models previously attained on the training dataset, I get an accuracy rate of 97%.  I feel good about using this model in order to run the 20 test data points.
+
+
+
+```{r Model Validation on Holdout Training Data sample}
+
+PredictPCT_Test <- predict(preProcPCA, D4_Test) %>% 
+  select(-c('user_name'))
+rf_test_fit <- predict(mod_fit_rf, newdata = PredictPCT_Test)
+test_w_results <- PredictPCT_Test
+test_w_results$rf_fit = as.factor(rf_test_fit)
+confusionMatrix(as.factor(test_w_results$classe), as.factor(test_w_results$rf_fit))
+
+```
